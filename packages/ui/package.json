@@ -1,0 +1,11 @@
+{
+  "name": "@microfe/ui",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "peerDependencies": {
+    "react": "19.3.0"
+  }
+}
