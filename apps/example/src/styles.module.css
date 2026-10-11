@@ -1,0 +1,19 @@
+.example-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #2455d6;
+}
+.example-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+.example-standalone {
+  max-width: 880px;
+  margin: 60px auto;
+  padding: 24px;
+  font-family: system-ui, sans-serif;
+  color: #16243d;
+}

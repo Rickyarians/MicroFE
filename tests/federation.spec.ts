@@ -2,9 +2,10 @@ import { expect, test } from '@playwright/test';
 
 test('loads a real remote widget and opens its screen through a callback', async ({ page }) => {
   const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  const remoteEntry = page.waitForResponse(response =>
-    response.url().includes(':3001/remoteEntry.js') && response.ok());
+  page.on('pageerror', (error) => errors.push(error.message));
+  const remoteEntry = page.waitForResponse(
+    (response) => response.url().includes(':3001/remoteEntry.js') && response.ok(),
+  );
   await page.goto('/');
   await remoteEntry;
   await expect(page.getByRole('heading', { name: 'Widget dari remote' })).toBeVisible();
@@ -19,7 +20,7 @@ test('loads a real remote widget and opens its screen through a callback', async
 });
 
 test('keeps the shell usable when the remote cannot load', async ({ page }) => {
-  await page.route('**/remoteEntry.js', route => route.abort());
+  await page.route('**/remoteEntry.js', (route) => route.abort());
   await page.goto('/');
   await expect(page.getByRole('alert')).toContainText('Modul tidak tersedia');
   await expect(page.getByRole('heading', { name: 'MicroFE' })).toBeVisible();
@@ -44,11 +45,13 @@ test('shows a fallback for unknown routes', async ({ page }) => {
 });
 
 test('uses the remote URL from runtime configuration', async ({ page }) => {
-  await page.route('**/runtime-config.js', route => route.fulfill({
-    contentType: 'application/javascript',
-    body: 'window.__MICROFE_CONFIG__ = { exampleUrl: "http://localhost:3001/alternate-entry.js" };',
-  }));
-  await page.route('**/alternate-entry.js', async route => {
+  await page.route('**/runtime-config.js', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: 'window.__MICROFE_CONFIG__ = { exampleUrl: "http://localhost:3001/alternate-entry.js" };',
+    }),
+  );
+  await page.route('**/alternate-entry.js', async (route) => {
     const response = await route.fetch({ url: 'http://localhost:3001/remoteEntry.js' });
     await route.fulfill({ response });
   });
@@ -58,18 +61,48 @@ test('uses the remote URL from runtime configuration', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Widget dari remote' })).toBeVisible();
 });
 
-test('loads runtime configuration alongside a shell deployed under a path prefix', async ({ page }) => {
+test('loads runtime configuration alongside a shell deployed under a path prefix', async ({
+  page,
+}) => {
   const requests: string[] = [];
-  page.on('request', request => requests.push(request.url()));
-  await page.route('**/mounted/**', async route => {
+  page.on('request', (request) => requests.push(request.url()));
+  await page.route('**/mounted/**', async (route) => {
     const response = await route.fetch({ url: route.request().url().replace('/mounted/', '/') });
     await route.fulfill({ response });
   });
   // Forward the remote too: a fulfilled document has an unknown network address space in Chromium.
-  await page.route('http://localhost:3001/**', async route => {
+  await page.route('http://localhost:3001/**', async (route) => {
     await route.fulfill({ response: await route.fetch() });
   });
   await page.goto('/mounted/');
   await expect(page.getByRole('heading', { name: 'Widget dari remote' })).toBeVisible();
   expect(requests).toContain('http://localhost:3000/mounted/runtime-config.js');
+});
+
+test('remote and UI styles do not target unrelated elements with the same class names', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Widget dari remote' })).toBeVisible();
+  const styles = await page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'color: rgb(10, 20, 30); font-size: 20px';
+    probe.innerHTML =
+      '<p class="example-label">Unrelated label</p><button class="mfe-button">Unrelated button</button>';
+    document.body.appendChild(probe);
+    const label = getComputedStyle(probe.querySelector('p')!);
+    const button = getComputedStyle(probe.querySelector('button')!);
+    return {
+      labelColor: label.color,
+      labelSize: label.fontSize,
+      buttonBackground: button.backgroundColor,
+    };
+  });
+  expect(styles.labelColor).toBe('rgb(10, 20, 30)');
+  expect(styles.labelSize).toBe('20px');
+  expect(styles.buttonBackground).not.toBe('rgb(36, 85, 214)');
+  await expect(page.getByRole('button', { name: 'Buka screen remote' })).toHaveCSS(
+    'background-color',
+    'rgb(36, 85, 214)',
+  );
 });

@@ -2,28 +2,45 @@
   "name": "microfe-boilerplate",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
-  "engines": { "node": ">=24" },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "tsc --noEmit",
     "test": "playwright test",
     "check:dependencies": "node scripts/check-dependencies.mjs",
-    "check": "npm run check:dependencies && npm run typecheck && npm run build && npm test",
-    "preview": "node scripts/preview.mjs"
+    "check": "npm run lint && npm run format:check && npm run check:dependencies && npm run typecheck && npm run test:config && npm run build && npm test",
+    "preview": "node scripts/preview.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "test:config": "node --test tests/runtime-config.test.cjs",
+    "configure": "node scripts/configure.cjs"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@playwright/test": "1.56.1",
     "@types/node": "24.10.0",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "copy-webpack-plugin": "14.0.0",
     "css-loader": "7.1.5",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "16.4.0",
     "html-webpack-plugin": "5.6.8",
+    "prettier": "3.6.2",
     "style-loader": "4.0.0",
     "ts-loader": "9.6.2",
     "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
     "webpack": "5.111.1",
     "webpack-cli": "7.2.3",
     "webpack-dev-server": "6.0.0"
