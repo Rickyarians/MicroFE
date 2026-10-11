@@ -2,6 +2,52 @@
 
 Boilerplate React + TypeScript dengan Webpack Module Federation. Shell memuat widget dan screen dari satu remote contoh. Styling komponen memakai CSS Modules. Remote dapat dijalankan sendiri dan dibuild terpisah.
 
+## Arsitektur
+
+Diagram berikut memperlihatkan integrasi saat aplikasi berjalan di browser. Shell dan remote menghasilkan asset terpisah; hosting dapat dipilih sesuai kebutuhan proyek.
+
+```mermaid
+flowchart TD
+  ShellAssets["Asset shell: index.html dan bundle"] --> Shell
+  Config["runtime-config.js"] -->|URL remote| Federation
+  RemoteAssets["Asset remote: remoteEntry.js dan chunks"] -->|container dan modul| Federation
+
+  subgraph Browser["Browser pengguna"]
+    Shell["Shell: layout dan routing"] -->|inisialisasi dan import| Federation["Runtime Module Federation"]
+    Federation -->|module expose| Remote["Remote example: Widget dan Screen"]
+    Remote -.->|callback navigasi| Shell
+    Shell -->|menggunakan| Shared["Shared scope: React dan React DOM"]
+    Remote -->|menggunakan| Shared
+  end
+```
+
+Shell membaca URL remote dari runtime config. Federation memuat container `remoteEntry.js`, menginisialisasi shared scope, dan menyediakan module yang diekspos remote. Import melalui `React.lazy` memuat komponen widget atau screen; `Suspense` menampilkan loading, dan error boundary menampilkan fallback jika pemuatan atau render komponen gagal.
+
+Remote mengelola state dan logic fitur, lalu meminta navigasi melalui callback dari shell. Shell menentukan perubahan URL. React dan React DOM dibagi lewat shared scope; setiap aplikasi tetap memiliki fallback dependency agar remote bisa berjalan standalone.
+
+| Bagian                      | Tanggung jawab                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `apps/shell`                | Layout, navigasi hash, komposisi remote, loading dan error fallback              |
+| `apps/example`              | Widget dan screen contoh, state fitur, entry standalone                          |
+| `packages/contracts`        | Tipe props dan callback sebagai batas integrasi                                  |
+| `packages/ui`               | Komponen UI lokal yang dibundel oleh aplikasi pemakainya                         |
+| `config/runtime-config.cjs` | Validasi environment dan URL remote, pembuatan konfigurasi publik                |
+| `webpack.common.cjs`        | Konfigurasi build, expose/import Federation, shared dependencies dan CSS Modules |
+
+UI dan contracts dihubungkan melalui npm workspaces saat development/build. Keduanya tidak diambil dari server dependency saat runtime. Shared scope adalah mekanisme runtime Federation, bukan aplikasi terpisah. Remote berjalan di konteks JavaScript browser yang sama dengan shell.
+
+## Fondasi boilerplate
+
+Boilerplate ini menyediakan pola yang bisa dipakai ulang tanpa domain bisnis tertentu:
+
+- Shell dan satu remote contoh yang bisa dibuild dan dijalankan terpisah.
+- Contract props/callback yang jelas; remote berkomunikasi dengan shell melalui contract.
+- Konfigurasi development, staging dan production, dengan URL remote yang bisa diganti setelah build.
+- Shared React dengan pemeriksaan versi, CSS Modules, ESLint dan Prettier.
+- Loading, error fallback, tes standalone/integrasi, serta CI.
+
+Untuk memakai boilerplate pada proyek baru, ganti fitur example, tentukan prefix route tiap remote, dan isi URL deployment. Auth, API client, state management, design tokens, logging, serta pipeline deployment dipilih sesuai kebutuhan proyek. Versi contract dan aturan rollback perlu disepakati sebelum remote dirilis oleh tim yang berbeda.
+
 ## Mulai
 
 Gunakan Node.js 24 (`nvm use`), lalu:
