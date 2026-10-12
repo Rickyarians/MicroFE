@@ -155,3 +155,100 @@ npm run build --workspace @microfe/example
 ```
 
 Routing memakai hash sehingga static hosting tidak membutuhkan rewrite untuk deep link. Script preview hanya untuk verifikasi lokal.
+
+## Deploy
+
+Shell dan remote adalah dua aplikasi static yang bisa dirilis masing-masing. Gunakan dua project hosting atau dua direktori pada web server. Tidak perlu menjalankan Node.js di server untuk menyajikan hasil build.
+
+Contoh URL di bawah adalah placeholder; ganti dengan domain deployment Anda:
+
+| Aplikasi       | URL contoh                        | Folder yang dipublikasikan |
+| -------------- | --------------------------------- | -------------------------- |
+| Remote example | `https://remote.your-domain.com/` | `apps/example/dist`        |
+| Shell          | `https://app.your-domain.com/`    | `apps/shell/dist`          |
+
+### 1. Siapkan build
+
+Jalankan dari root repo menggunakan Node.js 24 dan konfigurasi development (URL remote localhost). Jika `.env.local` atau environment terminal sudah berisi nilai production, kembalikan ke development sebelum checks.
+
+```sh
+npm ci --include=dev
+npx playwright install chromium
+npm run check
+```
+
+Build membutuhkan devDependencies seperti Webpack dan TypeScript. `npm run check` memverifikasi integrasi lokal menggunakan URL localhost; buat build shell production setelah pemeriksaan ini.
+
+### 2. Deploy remote terlebih dahulu
+
+```sh
+npm run build --workspace @microfe/example
+```
+
+Upload seluruh isi `apps/example/dist` ke hosting remote, termasuk `index.html`, `remoteEntry.js`, semua chunk JavaScript, dan file pendukung. Jangan hanya mengupload `remoteEntry.js`.
+
+Catat URL lengkap container, misalnya `https://remote.your-domain.com/remoteEntry.js`. Pastikan endpoint tersebut mengembalikan JavaScript dan dapat dimuat dari browser pengguna. Jika hosting memiliki proteksi login untuk preview, pemuatan remote dari shell juga harus memiliki akses yang sesuai.
+
+### 3. Build dan deploy shell
+
+Atur URL remote yang sudah tersedia, lalu build shell. Contoh macOS/Linux:
+
+```sh
+MICROFE_ENV=production MICROFE_EXAMPLE_URL=https://remote.your-domain.com/remoteEntry.js npm run build --workspace @microfe/shell
+```
+
+Di Windows atau dashboard hosting, isi dua environment variable tersebut melalui konfigurasi platform. Alternatif lokal: isi `.env.local` dengan `MICROFE_ENV=production` dan `MICROFE_EXAMPLE_URL` yang sama, lalu jalankan perintah build shell.
+
+Upload seluruh isi `apps/shell/dist` ke hosting shell. Pastikan `runtime-config.js` berada di samping `index.html`; file itu harus menunjuk ke URL remote production, bukan localhost.
+
+Jika platform hosting melakukan build langsung dari Git, gunakan konfigurasi berikut untuk kedua project:
+
+| Pengaturan        | Project remote                               | Project shell                                                        |
+| ----------------- | -------------------------------------------- | -------------------------------------------------------------------- |
+| Working directory | Root repo                                    | Root repo                                                            |
+| Runtime build     | Node.js 24                                   | Node.js 24                                                           |
+| Install command   | `npm ci --include=dev`                       | `npm ci --include=dev`                                               |
+| Build command     | `npm run build --workspace @microfe/example` | `npm run build --workspace @microfe/shell`                           |
+| Output directory  | `apps/example/dist`                          | `apps/shell/dist`                                                    |
+| Environment       | Tidak membutuhkan URL shell                  | `MICROFE_ENV=production`, `MICROFE_EXAMPLE_URL=<URL remoteEntry.js>` |
+
+Working directory tetap root repo agar npm workspaces menemukan UI, contracts, dan lockfile. Pilih mode static hosting jika platform meminta jenis aplikasi. Workflow CI saat ini menjalankan pemeriksaan; proses upload/deploy diatur melalui hosting yang Anda pilih.
+
+### 4. Atur asset dan cache
+
+Sajikan file JavaScript dengan MIME type yang benar dan kembalikan `404` untuk chunk yang tidak ditemukan. Jangan mengarahkan request asset yang hilang ke `index.html`. Routing hash seperti `/#/example` tidak membutuhkan SPA rewrite.
+
+| Asset pada URL yang tetap                           | Header cache yang disarankan                         |
+| --------------------------------------------------- | ---------------------------------------------------- |
+| `index.html`, `runtime-config.js`, `remoteEntry.js` | `Cache-Control: no-cache`                            |
+| Chunk dengan nama hash                              | `Cache-Control: public, max-age=31536000, immutable` |
+
+`no-cache` mengizinkan penyimpanan tetapi meminta revalidasi sebelum digunakan kembali. Jika CDN memiliki aturan cache terpisah, sesuaikan juga aturan CDN. Pertahankan chunk lama selama masih ada pengguna yang membuka versi sebelumnya.
+
+Shell dan remote juga dapat ditempatkan pada subpath, misalnya `/app/` dan `/example/`. Gunakan URL container lengkap `https://your-domain.com/example/remoteEntry.js`, pertahankan struktur folder hasil build, dan redirect URL direktori tanpa slash ke versi dengan slash (`/app/`). Webpack menggunakan `publicPath: 'auto'` untuk mencari chunk dari lokasi script; file runtime config shell memakai path relatif.
+
+### 5. Verifikasi deployment
+
+- Buka remote sendiri dan pastikan widget serta screen dapat digunakan.
+- Buka shell, klik counter widget, lalu **Buka screen remote** dan **Kembali ke dashboard**.
+- Buka langsung URL shell dengan `/#/example`, lalu refresh.
+- Periksa Network: `runtime-config.js`, `remoteEntry.js`, dan chunk berhasil dimuat dari lokasi deployment yang benar.
+- Periksa Console: tidak ada kegagalan chunk atau ketidakcocokan versi shared dependency.
+
+`npm run preview` adalah server verifikasi lokal, bukan perintah untuk hosting production.
+
+### 6. Update dan rollback
+
+Jika contract dan shared dependencies tetap kompatibel, remote bisa dirilis tanpa rebuild shell. Simpan versi remote pada deployment atau direktori yang tetap tersedia, misalnya `https://remote.your-domain.com/releases/v1/remoteEntry.js`.
+
+Untuk mengarahkan shell ke versi lain, gunakan hasil build shell yang sudah tersedia:
+
+```sh
+MICROFE_ENV=production MICROFE_EXAMPLE_URL=https://remote.your-domain.com/releases/v1/remoteEntry.js npm run configure
+```
+
+Upload hanya `apps/shell/dist/runtime-config.js` yang diperbarui, lalu lakukan revalidasi/purge file tersebut jika dibutuhkan oleh CDN. Tab yang sudah memuat remote perlu reload untuk mengambil konfigurasi baru. Untuk rollback shell, pulihkan satu paket asset shell yang lengkap beserta runtime config yang kompatibel.
+
+Jangan menghapus versi remote lama sebelum pengguna versi shell sebelumnya selesai menggunakannya. Perubahan yang memutus contract atau versi shared React perlu dirilis secara terkoordinasi.
+
+Referensi: [Webpack public path](https://webpack.js.org/guides/public-path/) dan [HTTP Cache-Control](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control).
