@@ -16,3 +16,50 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run check
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: docker compose config --quiet
+      - run: docker compose up --build --wait --wait-timeout 120
+      - name: Browser and HTTP checks against containers
+        run: npm test
+        env:
+          MICROFE_TEST_TARGET: container
+      - name: Verify shell production configuration at startup
+        run: |
+          node --input-type=module <<'JS'
+          import { spawnSync } from 'node:child_process';
+          const result = spawnSync('docker', ['run', '--rm', 'microfe-shell:local'], { encoding: 'utf8', timeout: 15000 });
+          if (result.error || result.status === 0 || !result.stderr.includes('MICROFE_EXAMPLE_URL')) {
+            throw new Error(`Expected missing production URL to stop startup: ${result.stderr}`);
+          }
+          const launched = spawnSync('docker', ['run', '-d', '--name', 'microfe-prod-check', '-p', '3100:8080', '-e', 'MICROFE_ENV=production', '-e', 'MICROFE_EXAMPLE_URL=https://remote.example.test/releases/v2/remoteEntry.js', 'microfe-shell:local'], { encoding: 'utf8' });
+          if (launched.status !== 0) throw new Error(launched.stderr);
+          try {
+            let healthy = false;
+            for (let attempt = 0; attempt < 30; attempt++) {
+              try { healthy = (await fetch('http://localhost:3100/health', { signal: AbortSignal.timeout(1000) })).ok; } catch {}
+              if (healthy) break;
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            if (!healthy) throw new Error('Production shell did not become healthy');
+            const response = await fetch('http://localhost:3100/runtime-config.js');
+            const source = await response.text();
+            if (!response.ok || !source.includes('production') || !source.includes('https://remote.example.test/releases/v2/remoteEntry.js')) throw new Error('Production runtime config mismatch');
+          } finally {
+            spawnSync('docker', ['rm', '-f', 'microfe-prod-check']);
+          }
+          JS
+      - name: Container logs
+        if: failure()
+        run: docker compose logs
+      - name: Stop containers
+        if: always()
+        run: docker compose down
