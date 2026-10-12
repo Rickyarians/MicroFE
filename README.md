@@ -252,3 +252,73 @@ Upload hanya `apps/shell/dist/runtime-config.js` yang diperbarui, lalu lakukan r
 Jangan menghapus versi remote lama sebelum pengguna versi shell sebelumnya selesai menggunakannya. Perubahan yang memutus contract atau versi shared React perlu dirilis secara terkoordinasi.
 
 Referensi: [Webpack public path](https://webpack.js.org/guides/public-path/) dan [HTTP Cache-Control](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control).
+
+## Docker / container
+
+Dockerfile multi-stage menyediakan dua target: `shell` dan `example`. Node.js 24 membuild aplikasi; Nginx menyajikan hasil build pada port `8080`. Image shell juga menyertakan Node untuk membuat `runtime-config.js` sekali saat startup, menggunakan validator yang sama dengan static build. Tidak ada development server atau `node_modules` aplikasi pada image runtime.
+
+### Jalankan lokal dengan Compose
+
+Install Docker dengan plugin Compose, lalu jalankan dari root repo:
+
+```sh
+docker compose up --build --wait
+```
+
+- Shell: http://localhost:3000
+- Remote: http://localhost:3001
+- Health endpoint setiap aplikasi: `/health`
+
+Compose menunggu remote healthy sebelum memulai shell. Default Compose adalah environment `development` dengan remote HTTP localhost, sedangkan bundle tetap dibuild dengan optimasi production. URL remote diakses oleh browser; jangan menggunakan hostname internal Compose seperti `http://example:8080` untuk `MICROFE_EXAMPLE_URL`.
+
+Untuk memeriksa alur integrasi terhadap container yang sudah berjalan:
+
+```sh
+npm ci
+npx playwright install chromium
+MICROFE_TEST_TARGET=container npm test
+```
+
+Pada Windows, atur `MICROFE_TEST_TARGET=container` melalui environment terminal sebelum `npm test`. Tes ini tidak memulai server preview; container harus sudah tersedia pada port `3000` dan `3001`.
+
+Untuk menghentikan container:
+
+```sh
+docker compose down
+```
+
+### Build dan jalankan image terpisah
+
+```sh
+docker build --target example -t microfe-example:v1 .
+docker build --target shell -t microfe-shell:v1 .
+docker run -d --name microfe-example -p 3001:8080 microfe-example:v1
+```
+
+Untuk percobaan lokal dengan shell HTTP:
+
+```sh
+docker run -d --name microfe-shell -p 3000:8080 \
+  -e MICROFE_ENV=development \
+  -e MICROFE_EXAMPLE_URL=http://localhost:3001/remoteEntry.js \
+  microfe-shell:v1
+```
+
+### Jalankan production
+
+Deploy image remote di platform container Anda dan sediakan endpoint HTTPS yang dapat diakses browser. Setelah itu jalankan shell dengan URL remote tersebut:
+
+```sh
+docker run -d --name microfe-shell-prod -p 8080:8080 \
+  -e MICROFE_ENV=production \
+  -e MICROFE_EXAMPLE_URL=https://remote.your-domain.com/remoteEntry.js \
+  microfe-shell:v1
+```
+
+Domain di atas adalah placeholder. Gunakan reverse proxy atau load balancer untuk HTTPS di depan port `8080`; image Nginx ini tidak menyiapkan sertifikat TLS. Untuk staging, gunakan `MICROFE_ENV=staging` dan URL HTTPS staging.
+
+Image shell secara default memakai environment `production`, sehingga tidak dapat startup tanpa URL remote yang valid. Mengganti environment/URL dilakukan dengan membuat ulang container dari image yang sama; tidak perlu rebuild image. Konfigurasi disimpan di filesystem container saat startup, bukan di layer image. Jangan menjalankan shell dengan filesystem read-only tanpa menyediakan writable mount untuk direktori HTML dan direktori kerja Nginx.
+
+Nginx menyediakan health check, `404` untuk asset yang hilang, revalidasi HTML/runtime config/container entry, dan cache immutable untuk chunk bernama hash. Deployment remote baru tetap harus mempertahankan chunk lama atau memakai URL versi yang tetap tersedia, sebagaimana panduan rollback di atas.
+
+CI membuild kedua image, menjalankan Compose, menguji browser serta HTTP/cache headers terhadap Nginx, dan memastikan konfigurasi production yang tidak lengkap menghentikan startup shell. CI memverifikasi image; publikasi ke registry dan deployment production ditentukan oleh platform yang Anda gunakan.
